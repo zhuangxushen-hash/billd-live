@@ -24,6 +24,10 @@
           <el-icon><Promotion /></el-icon>
           <span>伪直播配置</span>
         </el-menu-item>
+        <el-menu-item index="popup">
+          <el-icon><Picture /></el-icon>
+          <span>弹窗图片</span>
+        </el-menu-item>
         <el-menu-item index="users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
@@ -61,6 +65,7 @@
         <Dashboard v-if="activeMenu === 'dashboard'" />
         <RoomManagement v-else-if="activeMenu === 'rooms'" />
         <StreamConfig v-else-if="activeMenu === 'stream'" />
+        <PopupConfig v-else-if="activeMenu === 'popup'" />
         <UserManagement v-else-if="activeMenu === 'users'" />
         <SystemSettings v-else-if="activeMenu === 'settings'" />
       </el-main>
@@ -76,6 +81,7 @@ import { ElMessage } from 'element-plus'
 import Dashboard from './views/Dashboard.vue'
 import RoomManagement from './views/RoomManagement.vue'
 import StreamConfig from './views/StreamConfig.vue'
+import PopupConfig from './views/PopupConfig.vue'
 import UserManagement from './views/UserManagement.vue'
 import SystemSettings from './views/SystemSettings.vue'
 import LoginPage from './views/LoginPage.vue'
@@ -88,6 +94,7 @@ const menuTitles = {
   dashboard: '数据概览',
   rooms: '直播间管理',
   stream: '伪直播配置',
+  popup: '弹窗图片配置',
   users: '用户管理',
   settings: '系统设置'
 }

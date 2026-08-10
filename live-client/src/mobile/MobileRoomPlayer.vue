@@ -177,6 +177,37 @@
         </div>
       </div>
     </div>
+
+    <!-- 弹窗图片组件 -->
+    <transition name="popup-fade">
+      <div v-if="showPopup" class="popup-overlay" @click="closePopup">
+        <div class="popup-container" @click.stop>
+          <img 
+            v-if="popupConfig.image" 
+            :src="popupConfig.image.url" 
+            :alt="popupConfig.image.name"
+            class="popup-image"
+            @click="openFullscreen"
+          />
+          <div class="popup-close" @click="closePopup">×</div>
+          <div class="popup-timer" v-if="popupCountdown > 0">
+            {{ popupCountdown }} 秒后自动关闭
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 全屏预览弹窗 -->
+    <transition name="popup-fade">
+      <div v-if="showFullscreenPopup" class="fullscreen-popup" @click="showFullscreenPopup = false">
+        <img 
+          v-if="popupConfig.image" 
+          :src="popupConfig.image.url" 
+          :alt="popupConfig.image.name"
+        />
+        <div class="popup-close" @click="showFullscreenPopup = false">×</div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -203,6 +234,20 @@ const inputMessage = ref('')
 const activeGift = ref(null)
 const showGiftPanel = ref(false)
 const showChatPanel = ref(false)
+
+// 弹窗图片相关
+const popupConfig = ref({
+  popupId: null,
+  enabled: false,
+  displayDuration: 5,
+  delayTime: 3,
+  image: null
+})
+const showPopup = ref(false)
+const showFullscreenPopup = ref(false)
+const popupCountdown = ref(0)
+let popupTimer = null
+let countdownTimer = null
 
 // 视频方向：'landscape' 横屏, 'portrait' 竖屏
 const videoOrientation = ref('landscape')
@@ -440,6 +485,29 @@ function handleMessage(msg) {
         content: msg.data.content
       })
       break
+    case 'popup':
+      // 实时弹窗消息处理
+      handlePopupMessage(msg.data)
+      break
+  }
+}
+
+/**
+ * 处理弹窗消息（实时或定时触发）
+ */
+function handlePopupMessage(data) {
+  // 更新弹窗配置
+  popupConfig.value = {
+    popupId: data.image?.id || null,
+    enabled: true,
+    displayDuration: data.displayDuration || 5,
+    delayTime: 0,
+    image: data.image
+  }
+  
+  // 显示弹窗
+  if (data.image) {
+    showPopupImage()
   }
 }
 
@@ -539,9 +607,67 @@ function sendGift(gift) {
   })
 }
 
+// 加载弹窗配置
+async function fetchPopupConfig() {
+  try {
+    const res = await fetch(`/api/rooms/${props.roomId}/popup`)
+    const data = await res.json()
+    if (data.success) {
+      popupConfig.value = data.data
+      
+      // 如果启用了弹窗，设置延迟显示
+      if (data.data.enabled && data.data.image) {
+        schedulePopup()
+      }
+    }
+  } catch (e) {
+    console.error('加载弹窗配置失败:', e)
+  }
+}
+
+// 延迟显示弹窗
+function schedulePopup() {
+  const delay = (popupConfig.value.delayTime || 3) * 1000
+  popupTimer = setTimeout(() => {
+    showPopupImage()
+  }, delay)
+}
+
+// 显示弹窗图片
+function showPopupImage() {
+  if (!popupConfig.value.image || !popupConfig.value.enabled) return
+  
+  showPopup.value = true
+  popupCountdown.value = popupConfig.value.displayDuration || 5
+  
+  // 倒计时
+  countdownTimer = setInterval(() => {
+    popupCountdown.value--
+    if (popupCountdown.value <= 0) {
+      closePopup()
+    }
+  }, 1000)
+}
+
+// 关闭弹窗
+function closePopup() {
+  showPopup.value = false
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+  popupCountdown.value = 0
+}
+
+// 全屏预览
+function openFullscreen() {
+  showFullscreenPopup.value = true
+}
+
 onMounted(() => {
   fetchRoom()
   fetchGifts()
+  fetchPopupConfig()
   connectWebSocket()
   
   // 页面隐藏时暂停视频
@@ -558,6 +684,8 @@ onUnmounted(() => {
   if (flvPlayer) flvPlayer.destroy()
   if (reconnectTimer) clearTimeout(reconnectTimer)
   if (chatScrollTimer) clearTimeout(chatScrollTimer)
+  if (popupTimer) clearTimeout(popupTimer)
+  if (countdownTimer) clearInterval(countdownTimer)
   if (videoRef.value) {
     videoRef.value.pause()
     videoRef.value.src = ''
@@ -1352,5 +1480,126 @@ onUnmounted(() => {
   padding: 30px;
   color: var(--stitch-outline);
   font-size: 14px;
+}
+
+/* ============================================
+   弹窗图片样式
+   ============================================ */
+
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.popup-container {
+  position: relative;
+  max-width: 90vw;
+  max-height: 80vh;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.popup-image {
+  display: block;
+  max-width: 90vw;
+  max-height: 80vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 16px;
+}
+
+.popup-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #333;
+  cursor: pointer;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.popup-close:hover {
+  transform: scale(1.1);
+  background: white;
+}
+
+.popup-timer {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 20px;
+  color: white;
+  font-size: 12px;
+  backdrop-filter: blur(4px);
+}
+
+.fullscreen-popup {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.fullscreen-popup img {
+  max-width: 100vw;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* 弹窗动画 */
+.popup-fade-enter-active,
+.popup-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.popup-fade-enter-from,
+.popup-fade-leave-to {
+  opacity: 0;
+}
+
+.popup-fade-enter-active .popup-container {
+  animation: popupScaleIn 0.3s ease;
+}
+
+@keyframes popupScaleIn {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>

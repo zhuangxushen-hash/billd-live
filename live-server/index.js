@@ -20,9 +20,10 @@ const PORT = 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const CONFIG_DIR = path.join(__dirname, '..', 'config');
 const VIDEO_DIR = path.join(__dirname, '..', 'videos');
+const POPUP_DIR = path.join(__dirname, '..', 'popups');
 
 // 确保目录存在
-[DATA_DIR, CONFIG_DIR, VIDEO_DIR].forEach(dir => {
+[DATA_DIR, CONFIG_DIR, VIDEO_DIR, POPUP_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -53,6 +54,31 @@ const upload = multer({
   }
 });
 
+// 配置弹窗图片上传
+const popupStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, POPUP_DIR);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + '-' + crypto.randomUUID() + path.extname(file.originalname);
+    cb(null, uniqueName);
+  }
+});
+
+const uploadPopup = multer({
+  storage: popupStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 限制10MB
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('不支持的图片格式'));
+    }
+  }
+});
+
 // 初始化数据存储
 const db = {
   users: loadData('users.json', [
@@ -66,7 +92,8 @@ const db = {
     { id: 3, name: '蛋糕', icon: 'cake', price: 50 },
     { id: 4, name: '跑车', icon: 'car', price: 520 },
     { id: 5, name: '火箭', icon: 'rocket', price: 1314 }
-  ])
+  ]),
+  popups: loadData('popups.json', [])
 };
 
 // 内存中存储直播间连接状态
@@ -101,6 +128,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 app.use('/videos', express.static(VIDEO_DIR));
+app.use('/popups', express.static(POPUP_DIR));
 
 // 伪直播房间进程存储
 const fakeLiveProcesses = new Map();
@@ -787,6 +815,301 @@ app.get('/api/stats', (req, res) => {
     totalDanmaku: db.danmaku.length
   };
   res.json({ success: true, data: stats });
+});
+
+// ========== 弹窗图片相关接口 ==========
+
+/**
+ * 上传弹窗图片
+ */
+app.post('/api/popups/upload', uploadPopup.single('image'), (req, res) => {
+  if (!req.file) {
+    return res.json({ success: false, message: '请上传图片文件' });
+  }
+  
+  const protocol = req.protocol;
+  const host = req.get('host');
+  const imageUrl = `${protocol}://${host}/popups/${req.file.filename}`;
+  
+  const newPopup = {
+    id: db.popups.length > 0 ? Math.max(...db.popups.map(p => p.id)) + 1 : 1,
+    name: req.body.name || req.file.originalname,
+    filename: req.file.filename,
+    url: imageUrl,
+    size: req.file.size,
+    mimeType: req.file.mimetype,
+    width: req.body.width || 0,
+    height: req.body.height || 0,
+    createdAt: new Date().toISOString()
+  };
+  
+  db.popups.push(newPopup);
+  saveData('popups.json', db.popups);
+  res.json({ success: true, data: newPopup });
+});
+
+/**
+ * 获取弹窗图片列表
+ */
+app.get('/api/popups', (req, res) => {
+  res.json({ success: true, data: db.popups });
+});
+
+/**
+ * 删除弹窗图片
+ */
+app.delete('/api/popups/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const popupIndex = db.popups.findIndex(p => p.id === id);
+  
+  if (popupIndex === -1) {
+    return res.json({ success: false, message: '弹窗图片不存在' });
+  }
+  
+  // 删除文件
+  const popup = db.popups[popupIndex];
+  const filePath = path.join(POPUP_DIR, popup.filename);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+  
+  db.popups.splice(popupIndex, 1);
+  saveData('popups.json', db.popups);
+  res.json({ success: true });
+});
+
+/**
+ * 配置直播间弹窗图片
+ */
+app.post('/api/rooms/:id/popup', (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const { popupId, enabled, displayDuration, delayTime } = req.body;
+  
+  const roomIndex = db.rooms.findIndex(r => r.id === roomId);
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  // 如果指定了弹窗图片，检查是否存在
+  if (popupId) {
+    const popup = db.popups.find(p => p.id === popupId);
+    if (!popup) {
+      return res.json({ success: false, message: '弹窗图片不存在' });
+    }
+  }
+  
+  // 更新直播间的弹窗配置
+  db.rooms[roomIndex] = {
+    ...db.rooms[roomIndex],
+    popupConfig: {
+      popupId: popupId || null,
+      enabled: enabled !== undefined ? enabled : true,
+      displayDuration: displayDuration || 5,  // 显示时长（秒）
+      delayTime: delayTime || 3  // 延迟显示时间（秒）
+    },
+    updatedAt: new Date().toISOString()
+  };
+  
+  saveData('rooms.json', db.rooms);
+  res.json({ success: true, data: db.rooms[roomIndex].popupConfig });
+});
+
+/**
+ * 获取直播间弹窗配置
+ */
+app.get('/api/rooms/:id/popup', (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const room = db.rooms.find(r => r.id === roomId);
+  
+  if (!room) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  const popupConfig = room.popupConfig || {
+    popupId: null,
+    enabled: false,
+    displayDuration: 5,
+    delayTime: 3
+  };
+  
+  // 如果配置了弹窗图片，返回图片信息
+  if (popupConfig.popupId) {
+    const popup = db.popups.find(p => p.id === popupConfig.popupId);
+    if (popup) {
+      popupConfig.image = popup;
+    }
+  }
+  
+  res.json({ success: true, data: popupConfig });
+});
+
+/**
+ * 立即弹出弹窗（实时推送）
+ */
+app.post('/api/rooms/:id/popup/trigger', (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const { popupId, displayDuration } = req.body;
+  
+  const roomIndex = db.rooms.findIndex(r => r.id === roomId);
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  // 获取弹窗图片信息
+  let popupImage = null;
+  if (popupId) {
+    popupImage = db.popups.find(p => p.id === popupId);
+  } else {
+    // 如果没有指定弹窗图片，使用直播间配置的弹窗
+    const room = db.rooms[roomIndex];
+    if (room.popupConfig?.popupId) {
+      popupImage = db.popups.find(p => p.id === room.popupConfig.popupId);
+    }
+  }
+  
+  if (!popupImage) {
+    return res.json({ success: false, message: '请选择弹窗图片' });
+  }
+  
+  // 推送弹窗消息到直播间所有观众
+  broadcastToRoom(roomId, {
+    type: 'popup',
+    data: {
+      id: Date.now(),
+      roomId: roomId,
+      image: popupImage,
+      displayDuration: displayDuration || 5,
+      timestamp: Date.now()
+    }
+  });
+  
+  res.json({ 
+    success: true, 
+    message: '弹窗已推送',
+    data: { image: popupImage, displayDuration: displayDuration || 5 }
+  });
+});
+
+/**
+ * 定时弹出弹窗
+ */
+app.post('/api/rooms/:id/popup/schedule', (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const { popupId, displayDuration, scheduleTime, delaySeconds } = req.body;
+  
+  const roomIndex = db.rooms.findIndex(r => r.id === roomId);
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  // 获取弹窗图片信息
+  let popupImage = null;
+  if (popupId) {
+    popupImage = db.popups.find(p => p.id === popupId);
+  } else {
+    const room = db.rooms[roomIndex];
+    if (room.popupConfig?.popupId) {
+      popupImage = db.popups.find(p => p.id === room.popupConfig.popupId);
+    }
+  }
+  
+  if (!popupImage) {
+    return res.json({ success: false, message: '请选择弹窗图片' });
+  }
+  
+  let delayMs = 0;
+  
+  if (scheduleTime) {
+    // 指定时间点弹出
+    const targetTime = new Date(scheduleTime).getTime();
+    const now = Date.now();
+    delayMs = targetTime - now;
+    
+    if (delayMs <= 0) {
+      return res.json({ success: false, message: '指定时间已过' });
+    }
+  } else if (delaySeconds) {
+    // 延迟秒数弹出
+    delayMs = parseInt(delaySeconds) * 1000;
+  } else {
+    return res.json({ success: false, message: '请指定弹出时间或延迟秒数' });
+  }
+  
+  // 存储定时任务信息
+  const scheduledTask = {
+    id: Date.now(),
+    roomId: roomId,
+    popupImage: popupImage,
+    displayDuration: displayDuration || 5,
+    scheduleTime: scheduleTime || new Date(Date.now() + delayMs).toISOString(),
+    delayMs: delayMs,
+    createdAt: new Date().toISOString()
+  };
+  
+  // 保存定时任务（用于查询和管理）
+  if (!db.scheduledPopups) {
+    db.scheduledPopups = [];
+  }
+  db.scheduledPopups.push(scheduledTask);
+  saveData('scheduled_popups.json', db.scheduledPopups);
+  
+  // 设置定时器
+  setTimeout(() => {
+    // 推送弹窗
+    broadcastToRoom(roomId, {
+      type: 'popup',
+      data: {
+        id: Date.now(),
+        roomId: roomId,
+        image: popupImage,
+        displayDuration: displayDuration || 5,
+        timestamp: Date.now()
+      }
+    });
+    
+    // 移除已执行的定时任务
+    db.scheduledPopups = db.scheduledPopups.filter(t => t.id !== scheduledTask.id);
+    saveData('scheduled_popups.json', db.scheduledPopups);
+    
+    console.log(`[定时弹窗] 直播间 ${roomId} 弹窗已执行: ${popupImage.name}`);
+  }, delayMs);
+  
+  res.json({ 
+    success: true, 
+    message: `弹窗将在 ${Math.round(delayMs / 1000)} 秒后弹出`,
+    data: {
+      taskId: scheduledTask.id,
+      scheduleTime: scheduledTask.scheduleTime,
+      delaySeconds: Math.round(delayMs / 1000)
+    }
+  });
+});
+
+/**
+ * 获取定时弹窗任务列表
+ */
+app.get('/api/scheduled-popups', (req, res) => {
+  const tasks = db.scheduledPopups || [];
+  res.json({ success: true, data: tasks });
+});
+
+/**
+ * 取消定时弹窗任务
+ */
+app.delete('/api/scheduled-popups/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!db.scheduledPopups) {
+    return res.json({ success: false, message: '没有定时任务' });
+  }
+  
+  const taskIndex = db.scheduledPopups.findIndex(t => t.id === id);
+  if (taskIndex === -1) {
+    return res.json({ success: false, message: '任务不存在' });
+  }
+  
+  db.scheduledPopups.splice(taskIndex, 1);
+  saveData('scheduled_popups.json', db.scheduledPopups);
+  res.json({ success: true, message: '任务已取消' });
 });
 
 // ========== 启动服务 ==========
