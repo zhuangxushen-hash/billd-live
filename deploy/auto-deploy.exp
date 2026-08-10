@@ -1,0 +1,68 @@
+#!/usr/bin/expect -f
+
+# SSH 自动部署脚本
+set timeout 60
+
+# 服务器配置
+set server_ip "39.105.50.212"
+set server_user "root"
+set server_pass "@123123aA"
+
+# 连接服务器
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $server_user@$server_ip
+
+# 处理 SSH 登录
+expect {
+    "password:" {
+        send "$server_pass\r"
+    }
+    "Password:" {
+        send "$server_pass\r"
+    }
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    timeout {
+        puts "连接超时，请检查服务器 IP 是否正确"
+        exit 1
+    }
+}
+
+# 等待登录成功
+expect {
+    "#" {
+        puts "\n=== SSH 连接成功 ==="
+    }
+    "\\$" {
+        puts "\n=== SSH 连接成功 ==="
+    }
+    "Permission denied" {
+        puts "\n密码错误，请检查密码是否正确"
+        exit 1
+    }
+    timeout {
+        puts "\n登录超时"
+        exit 1
+    }
+}
+
+# 服务器环境检查
+send "echo '=== 服务器环境检查 ===' && uname -a && cat /etc/os-release | head -3\r"
+expect "#"
+
+# 检查 Docker
+send "which docker && docker --version || echo 'Docker 未安装'\r"
+expect "#"
+
+# 检查 Docker Compose
+send "docker compose version || echo 'Docker Compose 未安装'\r"
+expect "#"
+
+# 检查内存和磁盘
+send "free -h | head -2 && df -h / | tail -1\r"
+expect "#"
+
+puts "\n=== 环境检查完成 ==="
+send "exit\r"
+expect eof

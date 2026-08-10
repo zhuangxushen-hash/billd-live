@@ -1,0 +1,55 @@
+# 依赖
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 构建产物
+dist/
+build/
+*.local
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 数据文件（运行时生成）
+data/
+videos/
+uploads/
+config/
+
+# 日志
+logs/
+*.log
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Node
+node_repl_history
+out/
+
+# 项目特定
+stitch-designs/
+!stitch-designs/.gitkeep
+
+# SSL 证书（敏感）
+deploy/ssl/*.pem
+deploy/ssl/*.key
+!deploy/ssl/README.md
+
+# SSH 密钥
+*.pem
+*.key
