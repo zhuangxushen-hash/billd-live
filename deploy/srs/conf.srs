@@ -1,0 +1,97 @@
+# SRS 流媒体服务器配置
+# 支持 RTMP 推流、HTTP-FLV 和 HLS 拉流
+
+listen 1935;              # RTMP 推流端口
+max_connections 1000;
+
+# HTTP 服务配置
+http_server {
+    enabled on;
+    listen 8080;           # HTTP-FLV/HLS 拉流端口
+    dir ./objs;
+}
+
+# HTTPS 服务配置
+https_server {
+    enabled on;
+    listen 19350;
+    cert_file ./conf/server.crt;
+    key_file ./conf/server.key;
+    dir ./objs;
+}
+
+# RTMP 配置
+rtmp {
+    # RTMP 流检查
+    gop_cache on;
+    
+    # 最大直播时长
+    max_duration 86400;
+    
+    # 应用配置
+    server {
+        # 应用名称：live
+        application live {
+            # 启用 RTMP 源
+            rtmp_source on;
+            
+            # 转换配置
+            ffmpeg {
+                # 禁用 FFmpeg 转码（直接转发）
+                disabled on;
+            }
+            
+            # 开启所有直播流的录制（可选）
+            # record {
+            #     enabled on;
+            #     flv on;
+            #     mp4 off;
+            # }
+        }
+    }
+}
+
+# HTTP-FLV 直播配置
+http_flv_live {
+    enabled on;
+    fast_cache 30;         # 快速缓存时间（秒）
+    chunk_size 4096;       # 分块大小
+    req_cache {
+        enabled on;
+        key "app-vhost";
+    }
+}
+
+# HLS 直播配置
+hls_live {
+    enabled on;
+    hls_path ./objs/hls;   # HLS 文件存储路径
+    hls_fragment 10;       # HLS 分片时长（秒）
+    hls_window 60;         # HLS 窗口时长（秒）
+    hls_ts_resave on;      # 重新保存 TS 文件
+    hls_discontinuity on;  # 处理不连续性
+}
+
+# 直播流鉴权配置
+# 注意：生产环境建议开启鉴权
+http_hooks {
+    enabled off;           # 设置为 on 启用 HTTP 回调鉴权
+    on_publish http://127.0.0.1:3000/api/srs/auth;
+    on_unpublish http://127.0.0.1:3000/api/srs/auth;
+    on_play http://127.0.0.1:3000/api/srs/auth;
+    on_stop http://127.0.0.1:3000/api/srs/auth;
+}
+
+# 日志配置
+log_tank {
+    enabled on;
+    level trace;           # 日志级别：trace, info, warn, error
+    file ./log/srs.log;
+}
+
+# 性能配置
+performance {
+    # 禁用 SO_REUSEPORT
+    enabled on;
+    srs_log_level_error off;
+}
