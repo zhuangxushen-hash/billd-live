@@ -1219,6 +1219,267 @@ app.delete('/api/scheduled-popups/:id', (req, res) => {
   res.json({ success: true, message: '任务已取消' });
 });
 
+// ========== 分享链接接口 ==========
+
+/**
+ * 生成直播间分享链接
+ */
+app.post('/api/rooms/:id/share', (req, res) => {
+  const id = parseInt(req.params.id);
+  const room = db.rooms.find(r => r.id === id);
+  
+  if (!room) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  const protocol = req.protocol || 'http';
+  const host = req.get('host') || 'localhost:5173';
+  const shareUrl = `${protocol}://${host}/room/${id}`;
+  
+  res.json({
+    success: true,
+    data: {
+      shareUrl,
+      roomId: id,
+      title: room.title,
+      expireAt: null
+    }
+  });
+});
+
+/**
+ * 获取直播间分享信息
+ */
+app.get('/api/rooms/:id/share-info', (req, res) => {
+  const id = parseInt(req.params.id);
+  const room = db.rooms.find(r => r.id === id);
+  
+  if (!room) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  res.json({
+    success: true,
+    data: {
+      id: room.id,
+      title: room.title,
+      cover: room.cover,
+      category: room.category,
+      isLive: liveRooms.get(id)?.isLive || false
+    }
+  });
+});
+
+// ========== 用户管理接口 ==========
+
+/**
+ * 添加用户
+ */
+app.post('/api/users/create', (req, res) => {
+  const { username, password, nickname, role } = req.body;
+  
+  if (!username || !password) {
+    return res.json({ success: false, message: '用户名和密码不能为空' });
+  }
+  
+  // 检查用户名是否已存在
+  const existingUser = db.users.find(u => u.username === username);
+  if (existingUser) {
+    return res.json({ success: false, message: '用户名已存在' });
+  }
+  
+  const newUser = {
+    id: db.users.length > 0 ? Math.max(...db.users.map(u => u.id)) + 1 : 1,
+    username,
+    password,
+    nickname: nickname || username,
+    role: role || 'user',
+    avatar: '',
+    createdAt: new Date().toISOString()
+  };
+  
+  db.users.push(newUser);
+  saveData('users.json', db.users);
+  
+  res.json({
+    success: true,
+    data: {
+      id: newUser.id,
+      username: newUser.username,
+      nickname: newUser.nickname,
+      role: newUser.role
+    }
+  });
+});
+
+/**
+ * 重置用户密码
+ */
+app.post('/api/users/:id/reset-password', (req, res) => {
+  const id = parseInt(req.params.id);
+  const { newPassword } = req.body;
+  
+  if (!newPassword) {
+    return res.json({ success: false, message: '新密码不能为空' });
+  }
+  
+  const userIndex = db.users.findIndex(u => u.id === id);
+  if (userIndex === -1) {
+    return res.json({ success: false, message: '用户不存在' });
+  }
+  
+  db.users[userIndex].password = newPassword;
+  saveData('users.json', db.users);
+  
+  res.json({ success: true, message: '密码重置成功' });
+});
+
+/**
+ * 修改自己的密码
+ */
+app.post('/api/users/change-password', (req, res) => {
+  const { userId, oldPassword, newPassword } = req.body;
+  
+  if (!userId || !oldPassword || !newPassword) {
+    return res.json({ success: false, message: '参数不完整' });
+  }
+  
+  const userIndex = db.users.findIndex(u => u.id === parseInt(userId));
+  if (userIndex === -1) {
+    return res.json({ success: false, message: '用户不存在' });
+  }
+  
+  // 验证旧密码
+  if (db.users[userIndex].password !== oldPassword) {
+    return res.json({ success: false, message: '旧密码错误' });
+  }
+  
+  db.users[userIndex].password = newPassword;
+  saveData('users.json', db.users);
+  
+  res.json({ success: true, message: '密码修改成功' });
+});
+
+/**
+ * 更新用户信息
+ */
+app.put('/api/users/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const { nickname, role, avatar } = req.body;
+  
+  const userIndex = db.users.findIndex(u => u.id === id);
+  if (userIndex === -1) {
+    return res.json({ success: false, message: '用户不存在' });
+  }
+  
+  // 不允许修改username
+  const updateData = {};
+  if (nickname !== undefined) updateData.nickname = nickname;
+  if (role !== undefined) updateData.role = role;
+  if (avatar !== undefined) updateData.avatar = avatar;
+  
+  db.users[userIndex] = {
+    ...db.users[userIndex],
+    ...updateData,
+    updatedAt: new Date().toISOString()
+  };
+  
+  saveData('users.json', db.users);
+  
+  res.json({
+    success: true,
+    data: {
+      id: db.users[userIndex].id,
+      username: db.users[userIndex].username,
+      nickname: db.users[userIndex].nickname,
+      role: db.users[userIndex].role
+    }
+  });
+});
+
+/**
+ * 删除用户
+ */
+app.delete('/api/users/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const userIndex = db.users.findIndex(u => u.id === id);
+  
+  if (userIndex === -1) {
+    return res.json({ success: false, message: '用户不存在' });
+  }
+  
+  // 不允许删除管理员
+  if (db.users[userIndex].role === 'admin') {
+    return res.json({ success: false, message: '不能删除管理员' });
+  }
+  
+  db.users.splice(userIndex, 1);
+  saveData('users.json', db.users);
+  
+  res.json({ success: true, message: '用户已删除' });
+});
+
+// ========== 伪直播视频链接配置接口 ==========
+
+/**
+ * 配置伪直播（支持视频链接URL）
+ */
+app.post('/api/rooms/:id/fake-live/setup-url', (req, res) => {
+  const id = parseInt(req.params.id);
+  const { videoUrl, loopCount, autoStart } = req.body;
+  
+  const roomIndex = db.rooms.findIndex(r => r.id === id);
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  if (!videoUrl) {
+    return res.json({ success: false, message: '视频链接不能为空' });
+  }
+  
+  // 验证URL格式
+  const urlPattern = /^https?:\/\/.+/i;
+  if (!urlPattern.test(videoUrl)) {
+    return res.json({ success: false, message: '视频链接格式不正确' });
+  }
+  
+  // 支持的视频格式
+  const supportedFormats = ['.mp4', '.webm', '.flv', '.m3u8', '.mov'];
+  const urlLower = videoUrl.toLowerCase();
+  const isSupportedFormat = supportedFormats.some(fmt => urlLower.endsWith(fmt) || urlLower.includes(fmt + '?'));
+  
+  if (!isSupportedFormat) {
+    return res.json({ success: false, message: '不支持的视频格式，请使用MP4、WebM、FLV、HLS等格式' });
+  }
+  
+  // 更新直播间配置
+  db.rooms[roomIndex] = {
+    ...db.rooms[roomIndex],
+    fakeLive: true,
+    videoFile: videoUrl,
+    videoSourceType: 'url',
+    loopCount: loopCount || -1,
+    fakeLiveStarted: false,
+    updatedAt: new Date().toISOString()
+  };
+  
+  saveData('rooms.json', db.rooms);
+  
+  // 如果设置为自动开始
+  if (autoStart) {
+    const roomState = liveRooms.get(id);
+    if (roomState) {
+      roomState.isLive = true;
+    } else {
+      liveRooms.set(id, { viewers: new Set(), streamKey: db.rooms[roomIndex].streamKey, isLive: true });
+    }
+    db.rooms[roomIndex].fakeLiveStarted = true;
+    saveData('rooms.json', db.rooms);
+  }
+  
+  res.json({ success: true, data: db.rooms[roomIndex] });
+});
+
 // ========== 启动服务 ==========
 
 server.listen(PORT, () => {

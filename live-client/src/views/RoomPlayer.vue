@@ -23,9 +23,41 @@
       <div class="player-header">
         <button class="back-btn" @click="$emit('back')">← 返回</button>
         <h2 class="room-title">{{ room?.title }}</h2>
-        <div class="viewer-count">
-          <span>👁</span>
-          <span>{{ viewerCount }}</span>
+        <div class="header-actions">
+          <button class="share-btn" @click="showShareModal = true">分享</button>
+          <div class="viewer-count">
+            <span>👁</span>
+            <span>{{ viewerCount }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分享弹窗 -->
+      <div v-if="showShareModal" class="share-modal" @click.self="showShareModal = false">
+        <div class="share-modal-content">
+          <h3>分享直播间</h3>
+          <p class="share-desc">复制下方链接分享给朋友</p>
+          <div class="share-link-box">
+            <input 
+              v-model="shareUrl" 
+              readonly 
+              class="share-link-input"
+            />
+            <button class="copy-btn" @click="copyShareLink">复制</button>
+          </div>
+          <div class="share-options">
+            <button class="share-option-btn" @click="shareToWeChat">
+              <span class="share-icon">微信</span>
+            </button>
+            <button class="share-option-btn" @click="shareToQQ">
+              <span class="share-icon">QQ</span>
+            </button>
+            <button class="share-option-btn" @click="shareToWeibo">
+              <span class="share-icon">微博</span>
+            </button>
+          </div>
+          <button class="close-share-btn" @click="showShareModal = false">关闭</button>
+          <p v-if="copySuccess" class="copy-tip">链接已复制到剪贴板</p>
         </div>
       </div>
     </div>
@@ -101,6 +133,9 @@ const messages = ref([])
 const gifts = ref([])
 const inputMessage = ref('')
 const activeGift = ref(null)
+const showShareModal = ref(false)
+const shareUrl = ref('')
+const copySuccess = ref(false)
 
 let ws = null
 let flvPlayer = null
@@ -226,7 +261,8 @@ function tryPlayFakeStream() {
 
 function connectWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//localhost:3000?roomId=${props.roomId}`
+  const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host
+  const wsUrl = `${protocol}//${host}?roomId=${props.roomId}`
   
   ws = new WebSocket(wsUrl)
   
@@ -361,6 +397,79 @@ function sendGift(gift) {
   })
 }
 
+// 生成分享链接
+async function generateShareUrl() {
+  try {
+    const res = await fetch(`/api/rooms/${props.roomId}/share`, { method: 'POST' })
+    const data = await res.json()
+    if (data.success) {
+      shareUrl.value = data.data.shareUrl
+    } else {
+      // 备用方案：手动构造链接
+      const protocol = window.location.protocol
+      const host = window.location.host
+      shareUrl.value = `${protocol}://${host}/room/${props.roomId}`
+    }
+  } catch (e) {
+    console.error('生成分享链接失败:', e)
+    const protocol = window.location.protocol
+    const host = window.location.host
+    shareUrl.value = `${protocol}://${host}/room/${props.roomId}`
+  }
+}
+
+// 复制分享链接
+async function copyShareLink() {
+  try {
+    await navigator.clipboard.writeText(shareUrl.value)
+    copySuccess.value = true
+    setTimeout(() => {
+      copySuccess.value = false
+    }, 2000)
+  } catch (e) {
+    // 备用复制方法
+    const input = document.querySelector('.share-link-input')
+    if (input) {
+      input.select()
+      document.execCommand('copy')
+      copySuccess.value = true
+      setTimeout(() => {
+        copySuccess.value = false
+      }, 2000)
+    }
+  }
+}
+
+// 分享到微信
+function shareToWeChat() {
+  // 微信分享需要通过微信SDK或二维码
+  alert('请复制链接后在微信中粘贴分享')
+  copyShareLink()
+}
+
+// 分享到QQ
+function shareToQQ() {
+  const url = encodeURIComponent(shareUrl.value)
+  const title = encodeURIComponent(room.value?.title || '精彩直播')
+  const qqShareUrl = `https://connect.qq.com/widget/shareqq/index.html?url=${url}&title=${title}`
+  window.open(qqShareUrl, '_blank', 'width=600,height=500')
+}
+
+// 分享到微博
+function shareToWeibo() {
+  const url = encodeURIComponent(shareUrl.value)
+  const title = encodeURIComponent(room.value?.title || '精彩直播')
+  const weiboShareUrl = `https://service.weibo.com/share/share.php?url=${url}&title=${title}`
+  window.open(weiboShareUrl, '_blank', 'width=600,height=500')
+}
+
+// 监听分享弹窗显示，生成链接
+watch(showShareModal, (newVal) => {
+  if (newVal && !shareUrl.value) {
+    generateShareUrl()
+  }
+})
+
 onMounted(() => {
   fetchRoom()
   fetchGifts()
@@ -453,11 +562,140 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.share-btn {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.share-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+
 .viewer-count {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 14px;
+}
+
+/* 分享弹窗样式 */
+.share-modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.share-modal-content {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  width: 400px;
+  max-width: 90%;
+  text-align: center;
+}
+
+.share-modal-content h3 {
+  font-size: 20px;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.share-desc {
+  color: #666;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.share-link-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.share-link-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #f5f5f5;
+}
+
+.copy-btn {
+  padding: 10px 20px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.copy-btn:hover {
+  background: #5568d3;
+}
+
+.share-options {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.share-option-btn {
+  flex: 1;
+  padding: 12px;
+  background: #f5f5f5;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.share-option-btn:hover {
+  background: #e8e8e8;
+}
+
+.share-icon {
+  font-size: 13px;
+  color: #333;
+}
+
+.close-share-btn {
+  width: 100%;
+  padding: 10px;
+  background: #f5f5f5;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #666;
+}
+
+.close-share-btn:hover {
+  background: #e8e8e8;
+}
+
+.copy-tip {
+  color: #52c41a;
+  font-size: 13px;
+  margin-top: 12px;
 }
 
 .room-sidebar {

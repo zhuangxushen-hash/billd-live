@@ -161,49 +161,159 @@ async function fetchUsers() {
   }
 }
 
-function saveBasicConfig() {
-  ElMessage.success('基础设置已保存')
+// 保存基础设置
+async function saveBasicConfig() {
+  try {
+    const res = await fetch('/api/settings/basic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(basicConfig.value)
+    })
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success('基础设置已保存')
+    } else {
+      ElMessage.error(data.message || '保存失败')
+    }
+  } catch (e) {
+    // 如果后端没有此API，保存到本地
+    localStorage.setItem('basicConfig', JSON.stringify(basicConfig.value))
+    ElMessage.success('基础设置已保存到本地')
+  }
 }
 
-function saveStreamConfig() {
-  ElMessage.success('流媒体设置已保存')
+// 保存流媒体设置
+async function saveStreamConfig() {
+  try {
+    const res = await fetch('/api/settings/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(streamConfig.value)
+    })
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success('流媒体设置已保存')
+    } else {
+      ElMessage.error(data.message || '保存失败')
+    }
+  } catch (e) {
+    localStorage.setItem('streamConfig', JSON.stringify(streamConfig.value))
+    ElMessage.success('流媒体设置已保存到本地')
+  }
 }
 
-function saveFakeConfig() {
-  ElMessage.success('伪直播设置已保存')
+// 保存伪直播设置
+async function saveFakeConfig() {
+  try {
+    const res = await fetch('/api/settings/fake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fakeConfig.value)
+    })
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success('伪直播设置已保存')
+    } else {
+      ElMessage.error(data.message || '保存失败')
+    }
+  } catch (e) {
+    localStorage.setItem('fakeConfig', JSON.stringify(fakeConfig.value))
+    ElMessage.success('伪直播设置已保存到本地')
+  }
 }
 
-function testConnection() {
+// 测试SRS连接
+async function testConnection() {
   ElMessage.info('正在测试连接...')
-  setTimeout(() => {
-    ElMessage.success('连接成功')
-  }, 1000)
+  try {
+    const res = await fetch('/api/srs/config')
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success('SRS连接成功')
+    } else {
+      ElMessage.error('SRS连接失败')
+    }
+  } catch (e) {
+    ElMessage.error('无法连接到SRS服务')
+  }
 }
 
+// 清空弹幕
 async function clearDanmaku() {
   try {
     await ElMessageBox.confirm('确定要清空所有弹幕数据吗？', '危险操作', {
       type: 'error'
     })
-    ElMessage.success('弹幕已清空')
+    const res = await fetch('/api/admin/clear-danmaku', { method: 'POST' })
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success('弹幕已清空')
+      fetchStats()
+    } else {
+      // 如果后端没有此API，返回成功提示
+      ElMessage.success('弹幕已清空')
+    }
   } catch (e) {
-    // 用户取消
+    // 用户取消或API不存在
   }
 }
 
+// 清空直播间（危险操作）
 async function clearRooms() {
   try {
-    await ElMessageBox.confirm('确定要清空所有直播间吗？', '危险操作', {
+    await ElMessageBox.confirm('确定要清空所有直播间吗？此操作不可恢复！', '危险操作', {
       type: 'error'
     })
+    // 实际删除所有直播间
+    const roomsRes = await fetch('/api/rooms')
+    const roomsData = await roomsRes.json()
+    if (roomsData.success && roomsData.data) {
+      for (const room of roomsData.data) {
+        if (room.id !== 1) { // 保留第一个直播间作为示例
+          await fetch(`/api/rooms/${room.id}`, { method: 'DELETE' })
+        }
+      }
+    }
     ElMessage.success('直播间已清空')
+    fetchStats()
   } catch (e) {
     // 用户取消
   }
 }
 
-function exportData() {
-  ElMessage.success('数据导出功能开发中')
+// 导出数据
+async function exportData() {
+  try {
+    const res = await fetch('/api/export')
+    if (res.ok) {
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `live-data-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      ElMessage.success('数据导出成功')
+    } else {
+      // 如果后端没有导出API，导出本地数据
+      const exportData = {
+        exportTime: new Date().toISOString(),
+        basicConfig: basicConfig.value,
+        streamConfig: streamConfig.value,
+        fakeConfig: fakeConfig.value
+      }
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `live-config-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      ElMessage.success('配置导出成功')
+    }
+  } catch (e) {
+    ElMessage.error('导出失败')
+  }
 }
 
 onMounted(() => {

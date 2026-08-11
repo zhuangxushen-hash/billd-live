@@ -51,7 +51,7 @@
             {{ formatDate(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <el-button 
               v-if="!row.isLive" 
@@ -68,6 +68,13 @@
               @click="stopStream(row)"
             >
               结束直播
+            </el-button>
+            <el-button 
+              type="info" 
+              size="small" 
+              @click="openFakeLiveConfig(row)"
+            >
+              伪直播
             </el-button>
             <el-button type="primary" size="small" @click="viewStreamUrl(row)">
               推流地址
@@ -149,6 +156,43 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 伪直播配置对话框 -->
+    <el-dialog v-model="showFakeLiveDialog" title="伪直播配置" width="500px">
+      <div class="fake-live-info" v-if="currentRoomId">
+        <p class="info-text">为直播间 ID: {{ currentRoomId }} 配置伪直播</p>
+      </div>
+      <el-form :model="fakeLiveForm" label-width="100px">
+        <el-form-item label="视频链接">
+          <el-input 
+            v-model="fakeLiveForm.videoUrl" 
+            placeholder="请输入视频URL，支持MP4/WebM/FLV/HLS等格式"
+            type="textarea"
+            :rows="2"
+          />
+          <div class="format-tip">
+            支持格式: .mp4, .webm, .flv, .m3u8, .mov
+          </div>
+        </el-form-item>
+        <el-form-item label="循环次数">
+          <el-input-number 
+            v-model="fakeLiveForm.loopCount" 
+            :min="-1" 
+            :max="999"
+            controls-position="right"
+          />
+          <span class="form-tip" style="margin-left: 8px;">-1 表示无限循环</span>
+        </el-form-item>
+        <el-form-item label="自动开始">
+          <el-switch v-model="fakeLiveForm.autoStart" />
+          <span class="form-tip" style="margin-left: 8px;">保存后自动开始伪直播</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showFakeLiveDialog = false">取消</el-button>
+        <el-button type="primary" @click="configFakeLive">保存配置</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -161,6 +205,7 @@ const rooms = ref([])
 const searchKeyword = ref('')
 const showCreateDialog = ref(false)
 const showUrlDialog = ref(false)
+const showFakeLiveDialog = ref(false)
 const currentStreamUrl = ref(null)
 const currentRoomId = ref(null)
 
@@ -168,6 +213,12 @@ const createForm = ref({
   title: '',
   category: '其他',
   description: ''
+})
+
+const fakeLiveForm = ref({
+  videoUrl: '',
+  loopCount: -1,
+  autoStart: false
 })
 
 const filteredRooms = computed(() => {
@@ -264,6 +315,59 @@ function editRoom(room) {
   ElMessage.info(`编辑直播间 ${room.title}`)
 }
 
+// 打开伪直播配置对话框
+function openFakeLiveConfig(room) {
+  currentRoomId.value = room.id
+  // 填充已有配置
+  if (room.videoFile && room.videoSourceType === 'url') {
+    fakeLiveForm.value = {
+      videoUrl: room.videoFile,
+      loopCount: room.loopCount || -1,
+      autoStart: false
+    }
+  } else {
+    fakeLiveForm.value = {
+      videoUrl: '',
+      loopCount: -1,
+      autoStart: false
+    }
+  }
+  showFakeLiveDialog.value = true
+}
+
+// 配置伪直播
+async function configFakeLive() {
+  if (!fakeLiveForm.value.videoUrl) {
+    ElMessage.warning('请输入视频链接')
+    return
+  }
+  
+  // 验证URL格式
+  const urlPattern = /^https?:\/\/.+/i
+  if (!urlPattern.test(fakeLiveForm.value.videoUrl)) {
+    ElMessage.error('视频链接格式不正确，请以 http:// 或 https:// 开头')
+    return
+  }
+  
+  try {
+    const res = await fetch(`/api/rooms/${currentRoomId.value}/fake-live/setup-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fakeLiveForm.value)
+    })
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success('伪直播配置成功')
+      showFakeLiveDialog.value = false
+      fetchRooms()
+    } else {
+      ElMessage.error(data.message || '配置失败')
+    }
+  } catch (e) {
+    ElMessage.error('配置失败')
+  }
+}
+
 async function deleteRoom(room) {
   try {
     await ElMessageBox.confirm(
@@ -354,5 +458,31 @@ onMounted(() => {
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 伪直播配置样式 */
+.fake-live-info {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.info-text {
+  margin: 0;
+  color: #0369a1;
+  font-size: 13px;
+}
+
+.format-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
 }
 </style>
