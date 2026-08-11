@@ -177,7 +177,6 @@ services:
     volumes:
       - ./data/server:/app/data:ro
       - ./backups:/backups
-      - ./deploy/scripts/backup.sh:/backup.sh:ro
     environment:
       - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
     entrypoint: >
