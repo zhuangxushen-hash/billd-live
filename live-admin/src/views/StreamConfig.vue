@@ -3,20 +3,49 @@
     <el-card>
       <template #header>
         <div class="header">
-          <span class="title">伪直播配置</span>
-          <el-tag type="info">视频循环播放实现 24 小时无人直播</el-tag>
+          <span class="title">直播配置中心</span>
+          <el-tag :type="currentLiveMode === 'fake' ? 'info' : 'success'">
+            {{ currentLiveMode === 'fake' ? '伪直播模式' : '正常直播模式' }}
+          </el-tag>
         </div>
       </template>
       
-      <el-steps :active="currentStep" simple class="steps">
+      <!-- 直播模式选择 -->
+      <el-card class="mode-selector" style="margin-bottom: 20px;">
+        <template #header>
+          <span>直播模式</span>
+        </template>
+        <el-radio-group v-model="currentLiveMode" @change="onLiveModeChange">
+          <el-radio value="normal">正常直播</el-radio>
+          <el-radio value="fake">伪直播（视频循环）</el-radio>
+        </el-radio-group>
+        <div class="mode-description">
+          <template v-if="currentLiveMode === 'normal'">
+            <p><strong>正常直播：</strong>支持真实RTMP推流，主播使用OBS等推流软件进行直播，延迟低，互动性强</p>
+          </template>
+          <template v-else>
+            <p><strong>伪直播：</strong>使用预录制视频循环播放模拟直播，支持24小时无人值守，适合直播带货、课程回放等场景</p>
+          </template>
+        </div>
+      </el-card>
+      
+      <el-steps :active="currentStep" simple class="steps" v-if="currentLiveMode === 'fake'">
         <el-step title="选择直播间" />
         <el-step title="上传视频" />
         <el-step title="配置直播" />
         <el-step title="开始伪直播" />
       </el-steps>
+      
+      <el-steps :active="currentStep" simple class="steps" v-else>
+        <el-step title="选择直播间" />
+        <el-step title="配置推流" />
+        <el-step title="开始直播" />
+      </el-steps>
 
       <el-row :gutter="20" style="margin-top: 24px;">
         <el-col :span="12">
+          <!-- 伪直播步骤 -->
+          <template v-if="currentLiveMode === 'fake'">
           <!-- 步骤 1: 选择直播间 -->
           <el-card class="step-card" v-if="currentStep === 0">
             <h3>步骤 1: 选择要进行伪直播的直播间</h3>
@@ -213,26 +242,186 @@
               </el-button>
             </div>
           </el-card>
+          </template>
+          
+          <!-- 正常直播步骤 -->
+          <template v-if="currentLiveMode === 'normal'">
+            <!-- 步骤 1: 选择直播间 -->
+            <el-card class="step-card" v-if="currentStep === 0">
+              <h3>步骤 1: 选择直播间</h3>
+              <el-form :model="selectedRoom" label-width="100px">
+                <el-form-item label="直播间">
+                  <el-select v-model="selectedRoom.id" placeholder="请选择直播间" style="width: 100%;">
+                    <el-option 
+                      v-for="room in rooms" 
+                      :key="room.id" 
+                      :label="room.title" 
+                      :value="room.id"
+                    >
+                      <span>{{ room.title }}</span>
+                      <el-tag size="small" :type="room.isLive ? 'success' : 'info'" style="margin-left: 8px;">
+                        {{ room.isLive ? '直播中' : '未开播' }}
+                      </el-tag>
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+              </el-form>
+              <el-button type="primary" @click="selectRoomForNormal" :disabled="!selectedRoom.id">
+                下一步
+              </el-button>
+            </el-card>
+
+            <!-- 步骤 2: 配置推流 -->
+            <el-card class="step-card" v-if="currentStep === 1">
+              <h3>步骤 2: 配置推流信息</h3>
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="直播间">
+                  {{ selectedRoomData?.title || '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="直播模式">
+                  <el-tag type="success">正常直播</el-tag>
+                </el-descriptions-item>
+              </el-descriptions>
+              
+              <el-divider>推流地址配置</el-divider>
+              
+              <el-form label-width="120px">
+                <el-form-item label="RTMP推流地址">
+                  <el-input :model-value="normalStreamConfig.rtmpUrl" readonly>
+                    <template #append>
+                      <el-button @click="copyToClipboard(normalStreamConfig.rtmpUrl)">复制</el-button>
+                    </template>
+                  </el-input>
+                  <div class="form-tip">使用OBS、推流助手等软件推流时使用此地址</div>
+                </el-form-item>
+                
+                <el-form-item label="推流密钥">
+                  <el-input :model-value="normalStreamConfig.streamKey" readonly type="password" show-password>
+                    <template #append>
+                      <el-button @click="copyToClipboard(normalStreamConfig.streamKey)">复制</el-button>
+                    </template>
+                  </el-input>
+                  <div class="form-tip">请妥善保管推流密钥，不要泄露</div>
+                </el-form-item>
+                
+                <el-form-item label="拉流地址 (FLV)">
+                  <el-input :model-value="normalStreamConfig.flvUrl" readonly>
+                    <template #append>
+                      <el-button @click="copyToClipboard(normalStreamConfig.flvUrl)">复制</el-button>
+                    </template>
+                  </el-input>
+                  <div class="form-tip">低延迟，适合PC端播放</div>
+                </el-form-item>
+                
+                <el-form-item label="拉流地址 (HLS)">
+                  <el-input :model-value="normalStreamConfig.hlsUrl" readonly>
+                    <template #append>
+                      <el-button @click="copyToClipboard(normalStreamConfig.hlsUrl)">复制</el-button>
+                    </template>
+                  </el-input>
+                  <div class="form-tip">兼容性好，适合移动端播放</div>
+                </el-form-item>
+                
+                <el-form-item label="密钥操作">
+                  <el-button type="warning" @click="regenerateStreamKey">
+                    <el-icon><Refresh /></el-icon>
+                    重新生成密钥
+                  </el-button>
+                </el-form-item>
+              </el-form>
+              
+              <div class="srs-status">
+                <el-alert
+                  v-if="!srsConfigured"
+                  title="SRS流媒体服务器未配置"
+                  type="warning"
+                  description="正常直播需要SRS流媒体服务器支持，请在docker-compose.yml中配置SRS服务"
+                  show-icon
+                />
+                <el-alert
+                  v-else
+                  title="SRS流媒体服务器已配置"
+                  type="success"
+                  :description="`服务器地址: ${srsConfig.host}:${srsConfig.rtmpPort}`"
+                  show-icon
+                />
+              </div>
+              
+              <div class="btn-group">
+                <el-button @click="currentStep = 0">上一步</el-button>
+                <el-button type="primary" @click="currentStep = 2">下一步</el-button>
+              </div>
+            </el-card>
+
+            <!-- 步骤 3: 开始直播 -->
+            <el-card class="step-card" v-if="currentStep === 2">
+              <h3>步骤 3: 开始正常直播</h3>
+              
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="直播间">
+                  {{ selectedRoomData?.title || '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="直播模式">
+                  <el-tag type="success">正常直播</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="推流地址">
+                  <code>{{ normalStreamConfig.rtmpUrl }}</code>
+                </el-descriptions-item>
+              </el-descriptions>
+              
+              <el-divider>OBS 推流配置</el-divider>
+              
+              <div class="obs-config">
+                <p><strong>在OBS中配置：</strong></p>
+                <ol>
+                  <li>打开OBS设置 → 推流</li>
+                  <li>服务选择"自定义"</li>
+                  <li>服务器：<code>rtmp://{{ srsConfig.host }}:{{ srsConfig.rtmpPort }}/live</code></li>
+                  <li>串流密钥：<code>{{ normalStreamConfig.streamKey }}</code></li>
+                  <li>点击"开始推流"</li>
+                </ol>
+              </div>
+
+              <div class="btn-group">
+                <el-button @click="currentStep = 1">上一步</el-button>
+                <el-button 
+                  type="success" 
+                  @click="startNormalLive"
+                  :loading="starting"
+                >
+                  <el-icon><VideoPlay /></el-icon>
+                  {{ isStreaming ? '停止直播' : '一键开启直播' }}
+                </el-button>
+              </div>
+            </el-card>
+          </template>
         </el-col>
 
         <el-col :span="12">
           <!-- 直播预览 -->
           <el-card class="preview-card">
-            <h3>伪直播预览</h3>
+            <h3>{{ currentLiveMode === 'fake' ? '伪直播预览' : '直播状态监控' }}</h3>
             <div class="preview-area">
-              <video 
-                v-if="isStreaming" 
-                ref="previewVideo" 
-                :src="previewUrl"
-                autoplay 
-                muted
-                loop
-                class="preview-video"
-              ></video>
+              <template v-if="isStreaming">
+                <video 
+                  v-if="currentLiveMode === 'fake'"
+                  ref="previewVideo" 
+                  :src="previewUrl"
+                  autoplay 
+                  muted
+                  loop
+                  class="preview-video"
+                ></video>
+                <div v-else class="normal-live-preview">
+                  <el-icon :size="48" color="#67c23a"><VideoPlay /></el-icon>
+                  <p class="live-status">直播进行中</p>
+                  <p class="live-tip">请使用推流软件推流后查看画面</p>
+                </div>
+              </template>
               <div v-else class="preview-placeholder">
                 <el-icon :size="64"><VideoCamera /></el-icon>
                 <p>暂无直播画面</p>
-                <p class="tip">完成配置后点击"一键启动伪直播"</p>
+                <p class="tip">{{ currentLiveMode === 'fake' ? '完成配置后点击"一键启动伪直播"' : '完成配置后点击"一键开启直播"' }}</p>
               </div>
             </div>
             <div class="stream-info" v-if="isStreaming">
@@ -241,10 +430,10 @@
             </div>
           </el-card>
 
-          <!-- 伪直播说明 -->
+          <!-- 直播说明 -->
           <el-card class="guide-card">
-            <h3>伪直播说明</h3>
-            <el-descriptions :column="1" border>
+            <h3>{{ currentLiveMode === 'fake' ? '伪直播说明' : '正常直播说明' }}</h3>
+            <el-descriptions v-if="currentLiveMode === 'fake'" :column="1" border>
               <el-descriptions-item label="原理">
                 将预录制的视频文件作为直播源，循环播放模拟真实直播
               </el-descriptions-item>
@@ -261,6 +450,23 @@
                 直播带货、课程回放、游戏直播、电影轮播等
               </el-descriptions-item>
             </el-descriptions>
+            <el-descriptions v-else :column="1" border>
+              <el-descriptions-item label="原理">
+                使用RTMP协议推流到SRS流媒体服务器，观众通过HTTP-FLV或HLS协议拉流观看
+              </el-descriptions-item>
+              <el-descriptions-item label="推流工具">
+                OBS、推流助手、XSplit等支持RTMP推流的软件
+              </el-descriptions-item>
+              <el-descriptions-item label="播放协议">
+                HTTP-FLV（低延迟）、HLS（高兼容）
+              </el-descriptions-item>
+              <el-descriptions-item label="优点">
+                实时互动、支持多人连麦、观众延迟低
+              </el-descriptions-item>
+              <el-descriptions-item label="适用场景">
+                游戏直播、娱乐直播、教育直播、企业会议等
+              </el-descriptions-item>
+            </el-descriptions>
           </el-card>
         </el-col>
       </el-row>
@@ -271,9 +477,10 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { VideoPlay, UploadFilled, Film, VideoCamera } from '@element-plus/icons-vue'
+import { VideoPlay, UploadFilled, Film, VideoCamera, Refresh } from '@element-plus/icons-vue'
 
 const currentStep = ref(0)
+const currentLiveMode = ref('normal') // normal: 正常直播, fake: 伪直播
 const videoTab = ref('upload')
 const rooms = ref([])
 const videos = ref([])
@@ -288,6 +495,20 @@ const streamConfig = ref({
   lowLatency: true,
   autoStart: true
 })
+
+// 正常直播配置
+const normalStreamConfig = ref({
+  rtmpUrl: '',
+  flvUrl: '',
+  hlsUrl: '',
+  streamKey: ''
+})
+const srsConfig = ref({
+  host: 'localhost',
+  rtmpPort: 1935,
+  httpPort: 8080
+})
+const srsConfigured = ref(true)
 
 const isStreaming = ref(false)
 const starting = ref(false)
@@ -556,13 +777,169 @@ function formatSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
+/**
+ * 切换直播模式
+ */
+function onLiveModeChange() {
+  currentStep.value = 0
+  selectedRoom.value = { id: null }
+  videoConfig.value = { path: '', loopCount: -1 }
+  isStreaming.value = false
+  
+  // 更新直播间的直播模式
+  if (currentLiveMode.value === 'normal') {
+    ElMessage.info('已切换到正常直播模式，请选择直播间并配置推流')
+  } else {
+    ElMessage.info('已切换到伪直播模式，请选择直播间并上传视频')
+  }
+}
+
+/**
+ * 获取SRS配置
+ */
+async function fetchSrsConfig() {
+  try {
+    const res = await fetch('/api/srs/config')
+    const data = await res.json()
+    if (data.success) {
+      srsConfig.value = data.data
+      srsConfigured.value = true
+    }
+  } catch (e) {
+    srsConfigured.value = false
+    console.warn('SRS配置获取失败，使用默认配置')
+  }
+}
+
+/**
+ * 选择直播间（正常直播模式）
+ */
+async function selectRoomForNormal() {
+  if (!selectedRoom.value.id) return
+  
+  try {
+    // 更新直播间的直播模式
+    await fetch(`/api/rooms/${selectedRoom.value.id}/live-mode`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ liveMode: 'normal' })
+    })
+    
+    // 获取推流地址
+    const res = await fetch(`/api/rooms/${selectedRoom.value.id}/stream-url`)
+    const data = await res.json()
+    
+    if (data.success) {
+      normalStreamConfig.value = {
+        rtmpUrl: data.data.rtmpUrl,
+        flvUrl: data.data.flvUrl,
+        hlsUrl: data.data.hlsUrl,
+        streamKey: data.data.streamKey
+      }
+      currentStep.value = 1
+    }
+  } catch (e) {
+    ElMessage.error('获取推流地址失败')
+  }
+}
+
+/**
+ * 重新生成推流密钥
+ */
+async function regenerateStreamKey() {
+  if (!selectedRoom.value.id) return
+  
+  try {
+    await ElMessageBox.confirm('重新生成密钥后旧密钥将失效，确定继续？', '确认操作', {
+      type: 'warning'
+    })
+    
+    const res = await fetch(`/api/rooms/${selectedRoom.value.id}/regenerate-stream-key`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    
+    if (data.success) {
+      normalStreamConfig.value.streamKey = data.data.streamKey
+      ElMessage.success('密钥已重新生成')
+    } else {
+      ElMessage.error(data.message || '操作失败')
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  }
+}
+
+/**
+ * 开始正常直播
+ */
+async function startNormalLive() {
+  if (!selectedRoom.value.id) {
+    ElMessage.warning('请选择直播间')
+    return
+  }
+  
+  if (isStreaming.value) {
+    // 停止直播
+    await stopNormalLive()
+    return
+  }
+  
+  starting.value = true
+  
+  try {
+    const res = await fetch(`/api/rooms/${selectedRoom.value.id}/start`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    
+    if (data.success) {
+      isStreaming.value = true
+      streamStartTime.value = new Date()
+      startTimer()
+      ElMessage.success('直播已开启，请使用推流软件开始推流')
+    } else {
+      ElMessage.error(data.message || '操作失败')
+    }
+  } catch (e) {
+    ElMessage.error('操作失败')
+  } finally {
+    starting.value = false
+  }
+}
+
+/**
+ * 停止正常直播
+ */
+async function stopNormalLive() {
+  if (!selectedRoom.value.id) return
+  
+  try {
+    const res = await fetch(`/api/rooms/${selectedRoom.value.id}/stop`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    
+    if (data.success) {
+      isStreaming.value = false
+      stopTimer()
+      ElMessage.success('直播已停止')
+    }
+  } catch (e) {
+    ElMessage.error('操作失败')
+  }
+}
+
 onMounted(() => {
   fetchRooms()
   fetchVideos()
+  fetchSrsConfig()
 })
 
 watch(selectedRoom, () => {
-  if (selectedRoom.value.id) {
+  if (selectedRoom.value.id && currentLiveMode.value === 'fake') {
     fetchStreamUrl()
   }
 }, { deep: true })
@@ -724,5 +1101,79 @@ watch(selectedRoom, () => {
 .guide-card h3 {
   margin-bottom: 16px;
   color: #333;
+}
+
+.mode-selector {
+  background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
+}
+
+.mode-description {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #667eea;
+}
+
+.mode-description p {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.srs-status {
+  margin: 16px 0;
+}
+
+.obs-config {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.obs-config p {
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+
+.obs-config ol {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.8;
+}
+
+.obs-config code {
+  background: #e4e7ed;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.normal-live-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.live-status {
+  font-size: 18px;
+  font-weight: 600;
+  color: #67c23a;
+}
+
+.live-tip {
+  font-size: 13px;
+  color: #909399;
+  margin: 0;
 }
 </style>

@@ -22,6 +22,14 @@ const CONFIG_DIR = path.join(__dirname, '..', 'config');
 const VIDEO_DIR = path.join(__dirname, '..', 'videos');
 const POPUP_DIR = path.join(__dirname, '..', 'popups');
 
+// SRS流媒体服务器配置
+const SRS_CONFIG = {
+  host: process.env.SRS_HOST || 'localhost',
+  rtmpPort: 1935,
+  httpPort: 8080,
+  httpsPort: 19350
+};
+
 // 确保目录存在
 [DATA_DIR, CONFIG_DIR, VIDEO_DIR, POPUP_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
@@ -219,7 +227,7 @@ app.get('/api/rooms/:id', (req, res) => {
  * 创建直播间
  */
 app.post('/api/rooms', (req, res) => {
-  const { title, cover, category, description, streamUrl } = req.body;
+  const { title, cover, category, description, streamUrl, liveMode } = req.body;
   const newRoom = {
     id: db.rooms.length > 0 ? Math.max(...db.rooms.map(r => r.id)) + 1 : 1,
     title: title || '未命名直播间',
@@ -228,6 +236,7 @@ app.post('/api/rooms', (req, res) => {
     description: description || '',
     streamUrl: streamUrl || '',
     streamKey: crypto.randomUUID(),
+    liveMode: liveMode || 'normal', // normal: 正常直播, fake: 伪直播
     userId: 1,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -299,10 +308,84 @@ app.post('/api/rooms/:id/stop', (req, res) => {
   if (roomState) {
     roomState.isLive = false;
     roomState.viewers.clear();
+    
+    // 通知所有观众直播结束
+    broadcastToRoom(id, {
+      type: 'system',
+      data: {
+        message: '直播已结束',
+        viewerCount: 0
+      }
+    });
+    
     res.json({ success: true, message: '直播已结束' });
   } else {
     res.json({ success: true, message: '直播已结束' });
   }
+});
+
+/**
+ * 设置直播模式
+ */
+app.put('/api/rooms/:id/live-mode', (req, res) => {
+  const id = parseInt(req.params.id);
+  const { liveMode } = req.body;
+  
+  const roomIndex = db.rooms.findIndex(r => r.id === id);
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  if (!['normal', 'fake'].includes(liveMode)) {
+    return res.json({ success: false, message: '无效的直播模式' });
+  }
+  
+  db.rooms[roomIndex] = {
+    ...db.rooms[roomIndex],
+    liveMode: liveMode,
+    updatedAt: new Date().toISOString()
+  };
+  saveData('rooms.json', db.rooms);
+  res.json({ success: true, data: db.rooms[roomIndex] });
+});
+
+/**
+ * 重新生成推流密钥
+ */
+app.post('/api/rooms/:id/regenerate-stream-key', (req, res) => {
+  const id = parseInt(req.params.id);
+  const roomIndex = db.rooms.findIndex(r => r.id === id);
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  const newStreamKey = crypto.randomUUID();
+  db.rooms[roomIndex].streamKey = newStreamKey;
+  db.rooms[roomIndex].updatedAt = new Date().toISOString();
+  saveData('rooms.json', db.rooms);
+  
+  // 更新内存中的状态
+  const roomState = liveRooms.get(id);
+  if (roomState) {
+    roomState.streamKey = newStreamKey;
+  }
+  
+  res.json({ success: true, data: { streamKey: newStreamKey } });
+});
+
+/**
+ * 获取SRS服务器配置
+ */
+app.get('/api/srs/config', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      host: SRS_CONFIG.host,
+      rtmpPort: SRS_CONFIG.rtmpPort,
+      httpPort: SRS_CONFIG.httpPort,
+      httpsPort: SRS_CONFIG.httpsPort
+    }
+  });
 });
 
 /**
@@ -314,30 +397,54 @@ app.get('/api/rooms/:id/stream-url', (req, res) => {
   if (room) {
     const protocol = req.protocol;
     const host = req.get('host');
+    const srsHost = SRS_CONFIG.host;
     
-    // 如果是伪直播模式，返回视频流地址
-    if (room.fakeLive && room.videoFile) {
-      const videoUrl = `${protocol}://${host}/videos/${room.videoFile}`;
-      res.json({
-        success: true,
-        data: {
-          rtmpUrl: `rtmp://${host}:1935/live/${room.id}?key=${room.streamKey}`,
-          flvUrl: videoUrl,  // 伪直播直接返回视频文件URL
-          hlsUrl: videoUrl,
-          streamKey: room.streamKey,
-          fakeLive: true,
-          videoUrl: videoUrl
-        }
-      });
+    // 根据直播模式返回不同的流地址
+    if (room.liveMode === 'fake' || room.fakeLive) {
+      // 伪直播模式
+      if (room.videoFile) {
+        const videoUrl = `${protocol}://${host}/videos/${room.videoFile}`;
+        res.json({
+          success: true,
+          data: {
+            rtmpUrl: `rtmp://${host}:1935/live/${room.id}?key=${room.streamKey}`,
+            flvUrl: videoUrl,
+            hlsUrl: videoUrl,
+            streamKey: room.streamKey,
+            liveMode: 'fake',
+            videoUrl: videoUrl
+          }
+        });
+      } else {
+        res.json({
+          success: true,
+          data: {
+            rtmpUrl: `rtmp://${host}:1935/live/${room.id}?key=${room.streamKey}`,
+            flvUrl: '',
+            hlsUrl: '',
+            streamKey: room.streamKey,
+            liveMode: 'fake',
+            videoUrl: '',
+            message: '请先上传视频文件并配置伪直播'
+          }
+        });
+      }
     } else {
+      // 正常直播模式
+      const rtmpUrl = `rtmp://${srsHost}:${SRS_CONFIG.rtmpPort}/live/${room.id}?key=${room.streamKey}`;
+      const flvUrl = `${protocol}://${host}/live/${room.id}.flv`;
+      const hlsUrl = `${protocol}://${host}/live/${room.id}.m3u8`;
+      
       res.json({
         success: true,
         data: {
-          rtmpUrl: `rtmp://${host}:1935/live/${room.id}?key=${room.streamKey}`,
-          flvUrl: `${protocol}://${host}/live/${room.id}.flv`,
-          hlsUrl: `${protocol}://${host}/live/${room.id}.m3u8`,
+          rtmpUrl: rtmpUrl,
+          flvUrl: flvUrl,
+          hlsUrl: hlsUrl,
           streamKey: room.streamKey,
-          fakeLive: false
+          liveMode: 'normal',
+          srsHost: srsHost,
+          rtmpPort: SRS_CONFIG.rtmpPort
         }
       });
     }

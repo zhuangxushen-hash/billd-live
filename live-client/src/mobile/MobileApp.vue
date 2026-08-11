@@ -24,17 +24,6 @@
         @back="currentView = 'list'"
       />
     </main>
-
-    <!-- 登录弹窗 -->
-    <div v-if="showLogin" class="login-modal" @click.self="showLogin = false">
-      <div class="login-box">
-        <h3>登录</h3>
-        <input v-model="loginForm.username" placeholder="用户名" />
-        <input v-model="loginForm.password" type="password" placeholder="密码" />
-        <button class="login-submit" @click="doLogin">登录</button>
-        <p class="login-tip">默认账号: admin / 123456</p>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -48,13 +37,19 @@ const emit = defineEmits(['back'])
 const currentView = ref('list')
 const currentRoomId = ref(null)
 const userName = ref('访客用户')
-const showLogin = ref(false)
-const loginForm = ref({ username: '', password: '' })
 
 onMounted(() => {
+  // 读取本地存储的用户信息（如果之前登录过）
   const saved = localStorage.getItem('userInfo')
   if (saved) {
-    userName.value = JSON.parse(saved).nickname || '访客用户'
+    try {
+      const userInfo = JSON.parse(saved)
+      if (userInfo && userInfo.nickname) {
+        userName.value = userInfo.nickname
+      }
+    } catch (e) {
+      // 忽略解析错误
+    }
   }
 })
 
@@ -62,26 +57,6 @@ function enterRoom(roomId) {
   currentRoomId.value = roomId
   currentView.value = 'player'
   window.scrollTo(0, 0)
-}
-
-async function doLogin() {
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(loginForm.value)
-    })
-    const data = await res.json()
-    if (data.success) {
-      userName.value = data.data.nickname
-      localStorage.setItem('userInfo', JSON.stringify(data.data))
-      showLogin.value = false
-    } else {
-      alert(data.message)
-    }
-  } catch (e) {
-    alert('登录失败')
-  }
 }
 </script>
 
@@ -218,93 +193,5 @@ async function doLogin() {
 .mobile-main {
   flex: 1;
   padding-bottom: var(--stitch-safe-bottom);
-}
-
-/* ============================================
-   登录弹窗 - 毛玻璃 + Stitch样式
-   ============================================ */
-.login-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: stitchFadeIn 0.3s ease;
-}
-
-@keyframes stitchFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.login-box {
-  background: white;
-  padding: 28px 24px;
-  border-radius: 20px;
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  animation: stitchSlideUp 0.3s ease;
-}
-
-@keyframes stitchSlideUp {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.login-box h3 {
-  text-align: center;
-  color: var(--stitch-on-surface);
-  margin-bottom: 8px;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.login-box input {
-  padding: 12px 14px;
-  border: 1.5px solid var(--stitch-outline-variant);
-  border-radius: var(--stitch-radius-lg);
-  font-size: 14px;
-  transition: all 0.3s ease;
-  background: var(--stitch-surface-container-low);
-  color: var(--stitch-on-surface);
-}
-
-.login-box input:focus {
-  border-color: var(--stitch-primary);
-  background: white;
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 83, 189, 0.15);
-}
-
-.login-submit {
-  padding: 12px;
-  background: var(--stitch-gradient-primary);
-  color: white;
-  border: none;
-  border-radius: var(--stitch-radius-lg);
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 700;
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-  transition: all 0.3s ease;
-}
-
-.login-submit:active {
-  transform: scale(0.98);
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-.login-tip {
-  text-align: center;
-  color: var(--stitch-outline-variant);
-  font-size: 12px;
-  margin-top: 4px;
 }
 </style>

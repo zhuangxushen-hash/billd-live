@@ -20,7 +20,6 @@
       </nav>
       <div class="user-info">
         <span class="user-name">{{ userName }}</span>
-        <button class="login-btn" @click="showLogin = true">登录</button>
         <!-- 切换到移动端预览 -->
         <button class="mobile-btn" @click="previewMobile = true">移动端预览</button>
       </div>
@@ -39,16 +38,6 @@
       />
     </main>
 
-    <div v-if="showLogin" class="login-modal" @click.self="showLogin = false">
-      <div class="login-box">
-        <h3>登录</h3>
-        <input v-model="loginForm.username" placeholder="用户名" />
-        <input v-model="loginForm.password" type="password" placeholder="密码" />
-        <button class="login-submit" @click="doLogin">登录</button>
-        <p class="login-tip">默认账号: admin / 123456</p>
-      </div>
-    </div>
-
     <!-- 移动端预览弹窗 -->
     <div v-if="previewMobile" class="mobile-preview-modal" @click.self="previewMobile = false">
       <div class="preview-container">
@@ -65,7 +54,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import MobileApp from './mobile/MobileApp.vue'
 import RoomList from './views/RoomList.vue'
 import RoomPlayer from './views/RoomPlayer.vue'
@@ -73,8 +62,6 @@ import RoomPlayer from './views/RoomPlayer.vue'
 const currentView = ref('list')
 const currentRoomId = ref(null)
 const userName = ref('访客用户')
-const showLogin = ref(false)
-const loginForm = ref({ username: '', password: '' })
 const previewMobile = ref(false)
 
 // 移动端检测
@@ -129,9 +116,17 @@ onMounted(() => {
     }, 300)
   })
   
+  // 读取本地存储的用户信息
   const saved = localStorage.getItem('userInfo')
   if (saved) {
-    userName.value = JSON.parse(saved).nickname || '访客用户'
+    try {
+      const userInfo = JSON.parse(saved)
+      if (userInfo && userInfo.nickname) {
+        userName.value = userInfo.nickname
+      }
+    } catch (e) {
+      // 忽略解析错误
+    }
   }
 })
 
@@ -142,26 +137,6 @@ onUnmounted(() => {
 function enterRoom(roomId) {
   currentRoomId.value = roomId
   currentView.value = 'player'
-}
-
-async function doLogin() {
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(loginForm.value)
-    })
-    const data = await res.json()
-    if (data.success) {
-      userName.value = data.data.nickname
-      localStorage.setItem('userInfo', JSON.stringify(data.data))
-      showLogin.value = false
-    } else {
-      alert(data.message)
-    }
-  } catch (e) {
-    alert('登录失败')
-  }
 }
 </script>
 
@@ -190,15 +165,6 @@ async function doLogin() {
 .nav-item.active { background: rgba(255,255,255,0.2); }
 .user-info { display: flex; align-items: center; gap: 12px; }
 .user-name { font-size: 14px; }
-.login-btn {
-  padding: 6px 16px;
-  border: none;
-  border-radius: 20px;
-  background: white;
-  color: #667eea;
-  cursor: pointer;
-  font-weight: bold;
-}
 .mobile-btn {
   padding: 6px 16px;
   border: 1px solid rgba(255,255,255,0.5);
@@ -209,31 +175,6 @@ async function doLogin() {
   font-size: 13px;
 }
 .main { padding: 20px; }
-.login-modal {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
-}
-.login-box {
-  background: white; padding: 30px;
-  border-radius: 12px; width: 300px;
-  display: flex; flex-direction: column; gap: 12px;
-}
-.login-box h3 { text-align: center; color: #333; }
-.login-box input {
-  padding: 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 14px;
-}
-.login-submit {
-  padding: 10px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white; border: none; border-radius: 8px;
-  cursor: pointer; font-size: 16px; font-weight: bold;
-}
-.login-tip { text-align: center; color: #999; font-size: 12px; }
 
 /* 移动端预览弹窗 */
 .mobile-preview-modal {

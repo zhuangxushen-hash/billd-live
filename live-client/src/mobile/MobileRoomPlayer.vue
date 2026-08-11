@@ -213,6 +213,8 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import flvjs from 'flv.js'
+import Hls from 'hls.js'
 
 const props = defineProps({
   roomId: { type: Number, required: true },
@@ -274,8 +276,11 @@ const GIFT_ICONS = {
 
 let ws = null
 let flvPlayer = null
+let hlsPlayer = null
 let reconnectTimer = null
 let chatScrollTimer = null
+const currentLiveMode = ref('normal') // normal: 正常直播, fake: 伪直播
+let currentHlsUrl = '' // 保存当前HLS地址用于降级
 
 function getGiftIcon(icon) {
   return GIFT_ICONS[icon] || '🎁'
@@ -293,12 +298,23 @@ async function fetchRoom() {
       room.value = data.data
       isLive.value = data.data.isLive
       
-      // 如果是伪直播模式，获取视频URL并播放
-      if (data.data.fakeLive && data.data.isLive) {
-        const streamRes = await fetch(`/api/rooms/${props.roomId}/stream-url`)
-        const streamData = await streamRes.json()
-        if (streamData.success && streamData.data.fakeLive) {
-          playVideoUrl(streamData.data.videoUrl)
+      // 获取直播流地址
+      const streamRes = await fetch(`/api/rooms/${props.roomId}/stream-url`)
+      const streamData = await streamRes.json()
+      
+      if (streamData.success) {
+        currentLiveMode.value = streamData.data.liveMode || 'normal'
+        
+        if (streamData.data.liveMode === 'fake') {
+          // 伪直播模式
+          if (streamData.data.videoUrl && isLive.value) {
+            playFakeLive(streamData.data.videoUrl)
+          }
+        } else {
+          // 正常直播模式
+          if (isLive.value) {
+            playNormalLive(streamData.data.flvUrl, streamData.data.hlsUrl)
+          }
         }
       }
     }
@@ -321,16 +337,14 @@ async function fetchGifts() {
   }
 }
 
-function playVideoUrl(url) {
+/**
+ * 播放伪直播（循环播放视频文件）
+ */
+function playFakeLive(url) {
   if (!url || !videoRef.value) return
   
-  // 停止之前的FLV播放器
-  if (flvPlayer) {
-    flvPlayer.destroy()
-    flvPlayer = null
-  }
+  destroyAllPlayers()
   
-  // 直接使用video元素播放
   videoRef.value.src = url
   videoRef.value.play().then(() => {
     isPlaying.value = true
@@ -338,11 +352,168 @@ function playVideoUrl(url) {
     isPlaying.value = false
   })
   
-  // 监听视频结束事件，循环播放
-  videoRef.value.addEventListener('ended', () => {
+  // 循环播放
+  videoRef.value.onended = () => {
     videoRef.value.currentTime = 0
     videoRef.value.play().catch(() => {})
+  }
+}
+
+/**
+ * 播放正常直播流
+ */
+function playNormalLive(flvUrl, hlsUrl) {
+  if (!videoRef.value) return
+  
+  currentHlsUrl = hlsUrl || ''
+  destroyAllPlayers()
+  
+  // 优先尝试FLV播放（低延迟）
+  if (flvUrl && flvjs.isSupported()) {
+    playByFlv(flvUrl)
+  } else if (hlsUrl && Hls.isSupported()) {
+    // 降级到HLS
+    playByHls(hlsUrl)
+  } else if (hlsUrl && videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari原生支持HLS
+    videoRef.value.src = hlsUrl
+    videoRef.value.play().then(() => {
+      isPlaying.value = true
+    }).catch(() => {
+      isPlaying.value = false
+    })
+  } else {
+    console.error('当前浏览器不支持任何直播播放方式')
+  }
+}
+
+/**
+ * 使用flv.js播放
+ */
+function playByFlv(url) {
+  if (!flvjs.isSupported()) return false
+  
+  flvPlayer = flvjs.createPlayer({
+    type: 'live',
+    url: url,
+    isLive: true,
+    hasAudio: true,
+    hasVideo: true
   })
+  
+  flvPlayer.attachMediaElement(videoRef.value)
+  flvPlayer.load()
+  flvPlayer.play().then(() => {
+    isPlaying.value = true
+  }).catch((err) => {
+    console.error('FLV播放失败:', err)
+    // 降级到HLS
+    if (currentHlsUrl && Hls.isSupported()) {
+      playByHls(currentHlsUrl)
+    }
+  })
+  
+  flvPlayer.on(flvjs.Events.ERROR, (errorType, errorDetail) => {
+    console.error('FLV错误:', errorType, errorDetail)
+    isPlaying.value = false
+  })
+  
+  flvPlayer.on(flvjs.Events.LOADING_COMPLETE, () => {
+    if (isLive.value) {
+      reconnectFlv(url)
+    }
+  })
+  
+  return true
+}
+
+/**
+ * 使用hls.js播放
+ */
+function playByHls(url) {
+  if (!Hls.isSupported()) return false
+  
+  hlsPlayer = new Hls({
+    enableWorker: true,
+    lowLatencyMode: true,
+    liveSyncDurationCount: 3,
+    enableStashBuffer: false
+  })
+  
+  hlsPlayer.loadSource(url)
+  hlsPlayer.attachMedia(videoRef.value)
+  
+  hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+    videoRef.value.play().then(() => {
+      isPlaying.value = true
+    }).catch(() => {
+      isPlaying.value = false
+    })
+  })
+  
+  hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+    if (data.fatal) {
+      console.error('HLS致命错误:', data.type, data.details)
+      
+      switch (data.type) {
+        case Hls.ErrorTypes.NETWORK_ERROR:
+          hlsPlayer.startLoad()
+          break
+        case Hls.ErrorTypes.MEDIA_ERROR:
+          hlsPlayer.recoverMediaError()
+          break
+        default:
+          hlsPlayer.destroy()
+          break
+      }
+    }
+  })
+  
+  return true
+}
+
+/**
+ * FLV重连
+ */
+function reconnectFlv(url) {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+  }
+  
+  reconnectTimer = setTimeout(() => {
+    if (flvPlayer) {
+      flvPlayer.unload()
+      flvPlayer.load()
+      flvPlayer.play().catch(() => {
+        if (currentHlsUrl && Hls.isSupported()) {
+          playByHls(currentHlsUrl)
+        }
+      })
+    }
+  }, 3000)
+}
+
+/**
+ * 销毁所有播放器实例
+ */
+function destroyAllPlayers() {
+  if (flvPlayer) {
+    flvPlayer.pause()
+    flvPlayer.unload()
+    flvPlayer.detachMediaElement()
+    flvPlayer.destroy()
+    flvPlayer = null
+  }
+  
+  if (hlsPlayer) {
+    hlsPlayer.destroy()
+    hlsPlayer = null
+  }
+  
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
 }
 
 // 视频元数据加载完成，检测横竖屏

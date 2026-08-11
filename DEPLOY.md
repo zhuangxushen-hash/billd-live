@@ -36,8 +36,8 @@ ufw allow 8080/tcp
 
 ### 域名解析
 需要提前配置以下 DNS 记录：
-- `your-domain.com` -> 服务器 IP（客户端）
-- `admin.your-domain.com` -> 服务器 IP（管理后台）
+- `your-domain.com` → 服务器 IP（客户端）
+- `admin.your-domain.com` → 服务器 IP（管理后台）
 
 ---
 
@@ -105,8 +105,8 @@ vim deploy/nginx/nginx.prod.conf
 ```
 
 **需要修改的内容：**
-- `${SERVER_DOMAIN}` -> 替换为你的主域名
-- `${ADMIN_DOMAIN}` -> 替换为你的管理后台域名
+- `${SERVER_DOMAIN}` → 替换为你的主域名
+- `${ADMIN_DOMAIN}` → 替换为你的管理后台域名
 
 ### 4.3 修改 Docker Compose
 ```bash
