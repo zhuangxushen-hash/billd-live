@@ -37,8 +37,6 @@
         >
           登录
         </el-button>
-        
-        <p class="tip">默认账号: admin / 123456</p>
       </el-form>
     </div>
   </div>
@@ -52,8 +50,8 @@ import { User, Lock } from '@element-plus/icons-vue'
 const emit = defineEmits(['login-success'])
 
 const form = ref({
-  username: 'admin',
-  password: '123456'
+  username: '',
+  password: ''
 })
 const loading = ref(false)
 
