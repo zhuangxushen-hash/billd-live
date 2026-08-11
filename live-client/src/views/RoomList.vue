@@ -45,7 +45,33 @@
               {{ room.isLive ? '直播中' : '未开播' }}
             </span>
           </div>
+          <div class="room-actions" @click.stop>
+            <button class="share-action-btn" @click="shareRoom(room)">分享</button>
+          </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 分享弹窗 -->
+    <div v-if="showShareModal" class="share-modal" @click.self="closeShareModal">
+      <div class="share-modal-content">
+        <h3>分享直播间</h3>
+        <p class="share-desc">复制下方链接分享给朋友</p>
+        <div class="share-link-box">
+          <input
+            v-model="currentShareUrl"
+            readonly
+            class="share-link-input"
+          />
+          <button class="copy-btn" @click="copyShareLink">复制</button>
+        </div>
+        <div class="share-options">
+          <button class="share-option-btn" @click="shareToWeChat">微信</button>
+          <button class="share-option-btn" @click="shareToQQ">QQ</button>
+          <button class="share-option-btn" @click="shareToWeibo">微博</button>
+        </div>
+        <button class="close-share-btn" @click="closeShareModal">关闭</button>
+        <p v-if="copySuccess" class="copy-tip">链接已复制到剪贴板</p>
       </div>
     </div>
   </div>
@@ -59,6 +85,10 @@ const emit = defineEmits(['enter-room'])
 const rooms = ref([])
 const selectedCategory = ref('')
 let timer = null
+
+const showShareModal = ref(false)
+const currentShareUrl = ref('')
+const copySuccess = ref(false)
 
 const filteredRooms = computed(() => {
   if (!selectedCategory.value) return rooms.value
@@ -95,6 +125,40 @@ async function createDemoRoom() {
   } catch (e) {
     console.error('创建直播间失败:', e)
   }
+}
+
+function shareRoom(room) {
+  currentShareUrl.value = `${window.location.origin}/room/${room.id}`
+  showShareModal.value = true
+  copySuccess.value = false
+}
+
+function closeShareModal() {
+  showShareModal.value = false
+}
+
+function copyShareLink() {
+  const input = document.querySelector('.share-link-input')
+  if (input) {
+    input.select()
+    document.execCommand('copy')
+    copySuccess.value = true
+    setTimeout(() => {
+      copySuccess.value = false
+    }, 2000)
+  }
+}
+
+function shareToWeChat() {
+  alert('请复制链接后在微信中粘贴发送给朋友')
+}
+
+function shareToQQ() {
+  alert('请复制链接后在QQ中粘贴发送给朋友')
+}
+
+function shareToWeibo() {
+  alert('请复制链接后在微博中分享')
 }
 
 onMounted(() => {
@@ -188,4 +252,112 @@ onUnmounted(() => {
 }
 .status.online { color: #4ade80; }
 .status.offline { color: #999; }
+.room-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+.share-action-btn {
+  padding: 6px 16px;
+  border: 1px solid #667eea;
+  background: transparent;
+  color: #667eea;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.share-action-btn:hover {
+  background: #667eea;
+  color: white;
+}
+.share-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.share-modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+.share-modal-content h3 {
+  margin: 0 0 8px 0;
+  color: #333;
+}
+.share-desc {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+.share-link-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.share-link-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #333;
+  background: #f8f8f8;
+}
+.copy-btn {
+  padding: 10px 20px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.copy-btn:hover {
+  background: #5568d3;
+}
+.share-options {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.share-option-btn {
+  padding: 8px 20px;
+  border: 1px solid #e0e0e0;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.share-option-btn:hover {
+  background: #f5f5f5;
+  border-color: #667eea;
+  color: #667eea;
+}
+.close-share-btn {
+  padding: 8px 32px;
+  background: #f0f0f0;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+}
+.close-share-btn:hover {
+  background: #e0e0e0;
+}
+.copy-tip {
+  color: #4ade80;
+  font-size: 13px;
+  margin-top: 12px;
+}
 </style>

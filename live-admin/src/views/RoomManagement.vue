@@ -51,7 +51,7 @@
             {{ formatDate(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right">
+        <el-table-column label="操作" width="380" fixed="right">
           <template #default="{ row }">
             <el-button 
               v-if="!row.isLive" 
@@ -79,6 +79,7 @@
             <el-button type="primary" size="small" @click="viewStreamUrl(row)">
               推流地址
             </el-button>
+            <el-button type="success" size="small" @click="shareRoom(row)">分享</el-button>
             <el-button size="small" @click="editRoom(row)">编辑</el-button>
             <el-button type="danger" size="small" @click="deleteRoom(row)">删除</el-button>
           </template>
@@ -193,6 +194,62 @@
         <el-button type="primary" @click="configFakeLive">保存配置</el-button>
       </template>
     </el-dialog>
+
+    <!-- 分享对话框 -->
+    <el-dialog v-model="showShareDialog" title="分享直播间" width="500px">
+      <div class="share-dialog-content">
+        <div class="share-room-info" v-if="shareRoomInfo">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="直播间标题">{{ shareRoomInfo.title }}</el-descriptions-item>
+            <el-descriptions-item label="直播间ID">{{ shareRoomInfo.id }}</el-descriptions-item>
+            <el-descriptions-item label="分类">{{ shareRoomInfo.category }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+        
+        <div class="share-link-section">
+          <p class="section-title">直播间访问链接</p>
+          <el-input 
+            v-model="shareUrl" 
+            readonly 
+            :rows="2"
+            type="textarea"
+          >
+            <template #append>
+              <el-button @click="copyShareUrl">复制链接</el-button>
+            </template>
+          </el-input>
+        </div>
+
+        <div class="share-link-section">
+          <p class="section-title">播放器嵌入代码</p>
+          <el-input 
+            v-model="embedCode" 
+            readonly 
+            :rows="3"
+            type="textarea"
+          >
+            <template #append>
+              <el-button @click="copyEmbedCode">复制代码</el-button>
+            </template>
+          </el-input>
+          <p class="format-tip">将此代码嵌入到网页中即可播放直播</p>
+        </div>
+
+        <div class="share-social-section">
+          <p class="section-title">快速分享</p>
+          <div class="social-buttons">
+            <el-button @click="shareToWeChat">微信</el-button>
+            <el-button @click="shareToQQ">QQ</el-button>
+            <el-button @click="shareToWeibo">微博</el-button>
+            <el-button @click="shareToEmail">邮件</el-button>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showShareDialog = false">关闭</el-button>
+        <el-button type="primary" @click="copyShareUrl">复制链接</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -206,8 +263,12 @@ const searchKeyword = ref('')
 const showCreateDialog = ref(false)
 const showUrlDialog = ref(false)
 const showFakeLiveDialog = ref(false)
+const showShareDialog = ref(false)
 const currentStreamUrl = ref(null)
 const currentRoomId = ref(null)
+const shareRoomInfo = ref(null)
+const shareUrl = ref('')
+const embedCode = ref('')
 
 const createForm = ref({
   title: '',
@@ -233,6 +294,12 @@ const ffmpegCommand = computed(() => {
   if (!currentStreamUrl.value) return ''
   const url = currentStreamUrl.value.rtmpUrl
   return `ffmpeg -re -stream_loop -1 -i video.mp4 -c copy -f flv "${url}"`
+})
+
+const generatedShareUrl = computed(() => {
+  if (!shareRoomInfo.value) return ''
+  const origin = window.location.origin
+  return `${origin}/room/${shareRoomInfo.value.id}`
 })
 
 async function fetchRooms() {
@@ -402,6 +469,51 @@ function formatDate(dateStr) {
   return date.toLocaleString('zh-CN')
 }
 
+// 分享直播间
+async function shareRoom(room) {
+  shareRoomInfo.value = room
+  shareUrl.value = generatedShareUrl.value
+  // 生成嵌入代码
+  embedCode.value = `<iframe src="${generatedShareUrl.value}" width="800" height="600" frameborder="0" allowfullscreen></iframe>`
+  showShareDialog.value = true
+}
+
+function copyShareUrl() {
+  if (!shareUrl.value) return
+  navigator.clipboard.writeText(shareUrl.value).then(() => {
+    ElMessage.success('分享链接已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
+
+function copyEmbedCode() {
+  if (!embedCode.value) return
+  navigator.clipboard.writeText(embedCode.value).then(() => {
+    ElMessage.success('嵌入代码已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
+
+function shareToWeChat() {
+  ElMessage.info('请复制链接后在微信中粘贴发送给朋友')
+}
+
+function shareToQQ() {
+  ElMessage.info('请复制链接后在QQ中粘贴发送给朋友')
+}
+
+function shareToWeibo() {
+  ElMessage.info('请复制链接后在微博中分享')
+}
+
+function shareToEmail() {
+  const subject = encodeURIComponent(`分享直播间: ${shareRoomInfo.value?.title || ''}`)
+  const body = encodeURIComponent(`点击链接观看直播: ${shareUrl.value}`)
+  window.location.href = `mailto:?subject=${subject}&body=${body}`
+}
+
 onMounted(() => {
   fetchRooms()
 })
@@ -484,5 +596,42 @@ onMounted(() => {
 .form-tip {
   font-size: 12px;
   color: #909399;
+}
+
+/* 分享弹窗样式 */
+.share-dialog-content {
+  padding: 8px 0;
+}
+
+.share-room-info {
+  margin-bottom: 16px;
+}
+
+.share-link-section {
+  margin-bottom: 20px;
+}
+
+.share-link-section .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px 0;
+}
+
+.share-social-section {
+  margin-bottom: 8px;
+}
+
+.share-social-section .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px 0;
+}
+
+.social-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

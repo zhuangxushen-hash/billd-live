@@ -542,6 +542,7 @@ onUnmounted(() => {
   background: rgba(0,0,0,0.6);
   border-radius: 8px;
   color: white;
+  z-index: 10;
 }
 
 .back-btn {
