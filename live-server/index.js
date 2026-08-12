@@ -288,15 +288,28 @@ app.delete('/api/rooms/:id', (req, res) => {
  */
 app.post('/api/rooms/:id/start', (req, res) => {
   const id = parseInt(req.params.id);
+  const roomIndex = db.rooms.findIndex(r => r.id === id);
+  
+  if (roomIndex === -1) {
+    return res.json({ success: false, message: '直播间不存在' });
+  }
+  
+  const room = db.rooms[roomIndex];
   const roomState = liveRooms.get(id);
+  
   if (roomState) {
     roomState.isLive = true;
-    res.json({ success: true, message: '直播已开始' });
   } else {
     // 创建直播间状态
-    liveRooms.set(id, { viewers: new Set(), streamKey: '', isLive: true });
-    res.json({ success: true, message: '直播已开始' });
+    liveRooms.set(id, { viewers: new Set(), streamKey: room.streamKey, isLive: true });
   }
+  
+  // 更新数据库状态
+  db.rooms[roomIndex].isLive = true;
+  db.rooms[roomIndex].updatedAt = new Date().toISOString();
+  saveData('rooms.json', db.rooms);
+  
+  res.json({ success: true, message: '直播已开始' });
 });
 
 /**
@@ -304,6 +317,15 @@ app.post('/api/rooms/:id/start', (req, res) => {
  */
 app.post('/api/rooms/:id/stop', (req, res) => {
   const id = parseInt(req.params.id);
+  const roomIndex = db.rooms.findIndex(r => r.id === id);
+  
+  if (roomIndex !== -1) {
+    // 更新数据库状态
+    db.rooms[roomIndex].isLive = false;
+    db.rooms[roomIndex].updatedAt = new Date().toISOString();
+    saveData('rooms.json', db.rooms);
+  }
+  
   const roomState = liveRooms.get(id);
   if (roomState) {
     roomState.isLive = false;
@@ -403,7 +425,15 @@ app.get('/api/rooms/:id/stream-url', (req, res) => {
     if (room.liveMode === 'fake' || room.fakeLive) {
       // 伪直播模式
       if (room.videoFile) {
-        const videoUrl = `${protocol}://${host}/videos/${room.videoFile}`;
+        // 根据视频来源类型生成正确的URL
+        let videoUrl;
+        if (room.videoSourceType === 'url' || room.videoFile.startsWith('http')) {
+          // URL类型：直接使用原始链接
+          videoUrl = room.videoFile;
+        } else {
+          // 本地文件类型：拼接本地路径
+          videoUrl = `${protocol}://${host}/videos/${room.videoFile}`;
+        }
         res.json({
           success: true,
           data: {
@@ -412,7 +442,8 @@ app.get('/api/rooms/:id/stream-url', (req, res) => {
             hlsUrl: videoUrl,
             streamKey: room.streamKey,
             liveMode: 'fake',
-            videoUrl: videoUrl
+            videoUrl: videoUrl,
+            videoSourceType: room.videoSourceType || 'local'
           }
         });
       } else {
